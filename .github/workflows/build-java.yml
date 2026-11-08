@@ -1,0 +1,57 @@
+name: Build Java 21 + 25 for iOS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  JDK_BUILD_REPO: https://github.com/AngelAuraMC/angelauramc-openjdk-build
+  JDK_BUILD_REF: 3f41bcabf703fc5bfd75492b0ed713a73dd86541
+
+jobs:
+  java:
+    strategy:
+      fail-fast: false
+      matrix:
+        version: [21, 25]
+    name: Java ${{ matrix.version }} for iOS
+    runs-on: macos-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: ${{ matrix.version }}
+
+      - name: Get OpenJDK build scripts
+        run: |
+          git init jdkbuild && cd jdkbuild
+          git remote add origin "$JDK_BUILD_REPO"
+          git fetch --depth 1 origin "$JDK_BUILD_REF"
+          git checkout -q FETCH_HEAD
+          sed -i '' 's#\$(/usr/libexec/java_home -v \$TARGET_VERSION)#'"$JAVA_HOME"'#' 6_buildjdk.sh
+          grep -n "with-boot-jdk" 6_buildjdk.sh
+
+      - name: Install build tools
+        run: |
+          brew install wget fontconfig ldid autoconf
+          brew install --cask xquartz
+          ls /opt/X11/include/X11 | head -3
+
+      - name: Build OpenJDK ${{ matrix.version }} for iOS
+        working-directory: jdkbuild
+        run: |
+          export BUILD_IOS=1 J316SAP=1
+          export TARGET_VERSION=${{ matrix.version }}
+          bash 1_ci_build_arch_aarch64.sh
+          ls -la *.tar.xz
+
+      - name: Save as release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: java${{ matrix.version }}
+          name: iOS Java ${{ matrix.version }} runtime
+          body: OpenJDK ${{ matrix.version }} built for iOS arm64, used by the Tani Launcher build.
+          files: jdkbuild/jre${{ matrix.version }}-ios-*.tar.xz
